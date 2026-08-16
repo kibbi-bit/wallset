@@ -501,15 +501,42 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
         match self.backend.set_fit(fit) {
             Ok(()) => {
                 self.config.shared_fit = fit;
-                if let Err(error) = self.save_config() {
-                    self.status(error);
-                } else {
-                    self.status("Image fit applied to all monitors");
+                let restore_result = self.restore_effective_wallpapers();
+                let save_result = self.save_config();
+                match (restore_result, save_result) {
+                    (Ok(()), Ok(())) => self.status("Image fit applied to all monitors"),
+                    (Err(error), _) | (Ok(()), Err(error)) => self.status(error),
                 }
             }
             Err(error) => self.status(error),
         }
         self.publish();
+    }
+
+    fn restore_effective_wallpapers(&self) -> Result<(), String> {
+        let wallpapers: Vec<_> = self
+            .config
+            .monitors
+            .iter()
+            .filter(|(id, _)| self.registry.is_connected(id))
+            .filter_map(|(id, config)| {
+                config
+                    .current_image
+                    .as_ref()
+                    .map(|path| (id.clone(), path.clone()))
+            })
+            .collect();
+        let mut first_error = None;
+        for (id, path) in wallpapers {
+            if let Err(error) = self.backend.set_wallpaper(&id, &path)
+                && first_error.is_none()
+            {
+                first_error = Some(format!(
+                    "Image fit was applied, but the wallpaper for {id} could not be restored: {error}"
+                ));
+            }
+        }
+        first_error.map_or(Ok(()), Err)
     }
 
     fn color_file(&self, rgb: [u8; 3]) -> Result<PathBuf, String> {
@@ -544,22 +571,37 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, path::Path};
+    use std::{cell::RefCell, path::Path, rc::Rc};
 
     use super::*;
+    use crate::config::SlideshowOrder;
 
-    struct Backend;
+    #[derive(Debug, PartialEq)]
+    enum BackendCall {
+        SetWallpaper(String, PathBuf),
+        SetFit(FitMode),
+    }
+
+    #[derive(Default)]
+    struct Backend {
+        calls: Rc<RefCell<Vec<BackendCall>>>,
+    }
 
     impl WallpaperBackend for Backend {
         fn monitors(&self) -> Result<Vec<MonitorInfo>, String> {
             Ok(Vec::new())
         }
 
-        fn set_wallpaper(&self, _: &str, _: &Path) -> Result<(), String> {
+        fn set_wallpaper(&self, monitor_id: &str, path: &Path) -> Result<(), String> {
+            self.calls.borrow_mut().push(BackendCall::SetWallpaper(
+                monitor_id.to_owned(),
+                path.to_owned(),
+            ));
             Ok(())
         }
 
-        fn set_fit(&self, _: FitMode) -> Result<(), String> {
+        fn set_fit(&self, fit: FitMode) -> Result<(), String> {
+            self.calls.borrow_mut().push(BackendCall::SetFit(fit));
             Ok(())
         }
     }
@@ -595,8 +637,12 @@ mod tests {
             fail_save: true,
             events: RefCell::new(Vec::new()),
         };
-        let mut transitions =
-            Transitions::new(Backend, effects, PathBuf::new(), AppConfig::default());
+        let mut transitions = Transitions::new(
+            Backend::default(),
+            effects,
+            PathBuf::new(),
+            AppConfig::default(),
+        );
 
         assert!(transitions.handle(Command::ApplyFit(FitMode::Tile)));
 
@@ -611,14 +657,95 @@ mod tests {
     }
 
     #[test]
+    fn applying_fit_restores_each_connected_monitors_effective_wallpaper() {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let backend = Backend {
+            calls: Rc::clone(&calls),
+        };
+        let effects = Effects {
+            now: Instant::now(),
+            fail_save: false,
+            events: RefCell::new(Vec::new()),
+        };
+        let mut config = AppConfig::default();
+        config.monitors.insert(
+            "color".into(),
+            MonitorConfig {
+                mode: WallpaperMode::Color { rgb: [1, 2, 3] },
+                current_image: Some("color.bmp".into()),
+                remaining_shuffle_deck: Vec::new(),
+            },
+        );
+        config.monitors.insert(
+            "slideshow".into(),
+            MonitorConfig {
+                mode: WallpaperMode::Slideshow {
+                    folder: "slides".into(),
+                    interval_seconds: 300,
+                    order: SlideshowOrder::Random,
+                },
+                current_image: Some("slides/current.jpg".into()),
+                remaining_shuffle_deck: vec!["slides/next.jpg".into()],
+            },
+        );
+        config.monitors.insert(
+            "disconnected".into(),
+            MonitorConfig {
+                mode: WallpaperMode::Picture {
+                    path: "offline.jpg".into(),
+                },
+                current_image: Some("offline.jpg".into()),
+                remaining_shuffle_deck: Vec::new(),
+            },
+        );
+        let mut transitions = Transitions::new(backend, effects, PathBuf::new(), config);
+        transitions.registry.reconcile(vec![
+            MonitorInfo {
+                id: "color".into(),
+                name: "Color".into(),
+                detail: String::new(),
+                current_wallpaper: Some("wrong.jpg".into()),
+                available: true,
+            },
+            MonitorInfo {
+                id: "slideshow".into(),
+                name: "Slideshow".into(),
+                detail: String::new(),
+                current_wallpaper: Some("slides/current.jpg".into()),
+                available: true,
+            },
+        ]);
+        let config_before = serde_json::to_value(&transitions.config.monitors).unwrap();
+
+        transitions.apply_fit(FitMode::Fit);
+
+        assert_eq!(
+            *calls.borrow(),
+            [
+                BackendCall::SetFit(FitMode::Fit),
+                BackendCall::SetWallpaper("color".into(), "color.bmp".into()),
+                BackendCall::SetWallpaper("slideshow".into(), "slides/current.jpg".into()),
+            ]
+        );
+        assert_eq!(
+            serde_json::to_value(&transitions.config.monitors).unwrap(),
+            config_before
+        );
+    }
+
+    #[test]
     fn stop_command_ends_the_transition_loop() {
         let effects = Effects {
             now: Instant::now(),
             fail_save: false,
             events: RefCell::new(Vec::new()),
         };
-        let mut transitions =
-            Transitions::new(Backend, effects, PathBuf::new(), AppConfig::default());
+        let mut transitions = Transitions::new(
+            Backend::default(),
+            effects,
+            PathBuf::new(),
+            AppConfig::default(),
+        );
         assert!(!transitions.handle(Command::Stop));
     }
 }

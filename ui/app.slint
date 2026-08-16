@@ -1,0 +1,258 @@
+import { Button, CheckBox, ComboBox, HorizontalBox, LineEdit, ListView, Palette,
+         Slider, SpinBox, StandardListView, VerticalBox } from "std-widgets.slint";
+
+export struct MonitorRow {
+    id: string,
+    name: string,
+    detail: string,
+    managed: bool,
+    available: bool,
+}
+
+export enum WallpaperKind { current, picture, color, slideshow }
+
+export component AppWindow inherits Window {
+    title: "Wallset";
+    icon: @image-url("../assets/wallset.svg");
+    preferred-width: 820px;
+    preferred-height: 560px;
+    min-width: 720px;
+    min-height: 480px;
+
+    in property <[MonitorRow]> monitors;
+    in-out property <int> selected-index: 0;
+    in-out property <WallpaperKind> draft-kind: WallpaperKind.current;
+    in property <string> current-path: "";
+    in-out property <string> draft-picture-path: "";
+    in-out property <string> draft-slideshow-folder: "";
+    in property <image> preview-image;
+    in-out property <string> draft-color: "#2563EB";
+    in property <color> preview-color: #2563EB;
+    in-out property <string> draft-interval-value: "15";
+    in-out property <int> draft-interval-unit: 0;
+    in-out property <int> fit-index: 0;
+    in-out property <bool> launch-at-login: false;
+    in property <string> status-text: "Ready";
+    in property <bool> busy: false;
+    in property <bool> can-apply: selected-index >= 0 && selected-index < monitors.length;
+
+    callback select-monitor(int);
+    callback choose-picture();
+    callback choose-folder();
+    callback apply-monitor();
+    callback apply-fit();
+    callback refresh-monitors();
+    callback next-wallpaper();
+    callback startup-changed(bool);
+    callback color-edited(string);
+
+    background: Palette.background;
+
+    VerticalBox {
+        padding: 18px;
+        spacing: 14px;
+
+        HorizontalBox {
+            alignment: space-between;
+            Text { text: "Wallset"; font-size: 26px; font-weight: 700; }
+            HorizontalBox {
+                spacing: 8px;
+                Text { text: "Image fit"; vertical-alignment: center; }
+                ComboBox {
+                    model: ["Fill", "Fit", "Stretch", "Center", "Tile"];
+                    current-index <=> root.fit-index;
+                    width: 120px;
+                }
+                Button { text: "Apply to all"; clicked => { root.apply-fit(); } }
+                Button { text: "Refresh"; clicked => { root.refresh-monitors(); } }
+            }
+        }
+
+        HorizontalBox {
+            spacing: 16px;
+            Rectangle {
+                width: 245px;
+                background: Palette.alternate-background;
+                border-radius: 8px;
+                VerticalBox {
+                    padding: 10px;
+                    spacing: 8px;
+                    Text { text: "MONITORS"; color: Palette.alternate-foreground; font-size: 12px; }
+                    ListView {
+                        for monitor[index] in root.monitors : Rectangle {
+                            height: 70px;
+                            border-radius: 6px;
+                            background: index == root.selected-index ? Palette.selection-background : transparent;
+                            TouchArea { clicked => { root.select-monitor(index); } }
+                            VerticalBox {
+                                padding: 9px;
+                                spacing: 2px;
+                                Text {
+                                    text: monitor.name + (monitor.available ? "" : " (disconnected)");
+                                    color: index == root.selected-index ? Palette.selection-foreground : Palette.alternate-foreground;
+                                    font-weight: 600;
+                                }
+                                Text {
+                                    text: monitor.detail + (monitor.managed ? " · managed" : " · current Windows setting");
+                                    color: index == root.selected-index ? Palette.selection-foreground : Palette.alternate-foreground;
+                                    font-size: 12px;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                background: Palette.alternate-background;
+                border-radius: 8px;
+                horizontal-stretch: 1;
+                VerticalBox {
+                    padding: 18px;
+                    spacing: 14px;
+                    Text {
+                        text: root.selected-index >= 0 && root.selected-index < root.monitors.length
+                            ? root.monitors[root.selected-index].name : "No monitor selected";
+                        font-size: 20px;
+                        font-weight: 650;
+                    }
+
+                    HorizontalBox {
+                        spacing: 8px;
+                        Button { text: "Picture"; clicked => { root.draft-kind = WallpaperKind.picture; } }
+                        Button { text: "Color"; clicked => { root.draft-kind = WallpaperKind.color; } }
+                        Button { text: "Slideshow"; clicked => { root.draft-kind = WallpaperKind.slideshow; } }
+                    }
+
+                    if root.draft-kind == WallpaperKind.current : Rectangle {
+                        height: 190px;
+                        VerticalBox {
+                            spacing: 8px;
+                            Image { source: root.preview-image; height: 125px; image-fit: contain; }
+                            Text {
+                                text: root.current-path == "" ? "This monitor is not managed by Wallset yet." : "Current wallpaper: " + root.current-path;
+                                wrap: word-wrap;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    if root.draft-kind == WallpaperKind.picture : VerticalBox {
+                        spacing: 10px;
+                        Text { text: "Wallpaper image"; font-weight: 600; }
+                        HorizontalBox {
+                            LineEdit {
+                                text: root.draft-picture-path;
+                                edited(text) => { root.draft-picture-path = text; }
+                                horizontal-stretch: 1;
+                            }
+                            Button { text: "Browse…"; clicked => { root.choose-picture(); } }
+                        }
+                        Image { source: root.preview-image; height: 110px; image-fit: contain; }
+                        Text { text: "Supported: JPEG, PNG, BMP"; font-size: 12px; }
+                    }
+
+                    if root.draft-kind == WallpaperKind.color : VerticalBox {
+                        spacing: 10px;
+                        Text { text: "Solid color"; font-weight: 600; }
+                        HorizontalBox {
+                            spacing: 12px;
+                            Rectangle { width: 64px; height: 64px; border-radius: 8px; background: root.preview-color; border-width: 1px; border-color: Palette.border; }
+                            VerticalBox {
+                                Text { text: "Hex color"; }
+                                LineEdit {
+                                    text: root.draft-color;
+                                    placeholder-text: "#RRGGBB";
+                                    edited(text) => { root.draft-color = text; root.color-edited(text); }
+                                }
+                            }
+                        }
+                        HorizontalBox {
+                            spacing: 8px;
+                            for swatch in [
+                                { hex: "#111827", value: #111827 }, { hex: "#FFFFFF", value: #FFFFFF },
+                                { hex: "#2563EB", value: #2563EB }, { hex: "#16A34A", value: #16A34A },
+                                { hex: "#DC2626", value: #DC2626 }, { hex: "#9333EA", value: #9333EA }
+                            ] : Rectangle {
+                                width: 36px; height: 36px; border-radius: 6px; background: swatch.value;
+                                border-width: 1px; border-color: Palette.border;
+                                TouchArea { clicked => { root.draft-color = swatch.hex; root.color-edited(swatch.hex); } }
+                            }
+                        }
+                    }
+
+                    if root.draft-kind == WallpaperKind.slideshow : VerticalBox {
+                        spacing: 10px;
+                        Text { text: "Wallpaper folder"; font-weight: 600; }
+                        HorizontalBox {
+                            LineEdit {
+                                text: root.draft-slideshow-folder;
+                                edited(text) => { root.draft-slideshow-folder = text; }
+                                horizontal-stretch: 1;
+                            }
+                            Button { text: "Browse…"; clicked => { root.choose-folder(); } }
+                        }
+                        Text { text: "Change every"; font-weight: 600; }
+                        HorizontalBox {
+                            spacing: 8px;
+                            LineEdit {
+                                text: root.draft-interval-value;
+                                edited(text) => { root.draft-interval-value = text; }
+                                width: 90px;
+                            }
+                            ComboBox { model: ["minutes", "hours"]; current-index <=> root.draft-interval-unit; width: 120px; }
+                            Button { text: "Next now"; clicked => { root.next-wallpaper(); } }
+                        }
+                        HorizontalBox {
+                            spacing: 5px;
+                            Button { text: "1m"; clicked => { root.draft-interval-value = "1"; root.draft-interval-unit = 0; } }
+                            Button { text: "5m"; clicked => { root.draft-interval-value = "5"; root.draft-interval-unit = 0; } }
+                            Button { text: "15m"; clicked => { root.draft-interval-value = "15"; root.draft-interval-unit = 0; } }
+                            Button { text: "30m"; clicked => { root.draft-interval-value = "30"; root.draft-interval-unit = 0; } }
+                            Button { text: "1h"; clicked => { root.draft-interval-value = "1"; root.draft-interval-unit = 1; } }
+                            Button { text: "6h"; clicked => { root.draft-interval-value = "6"; root.draft-interval-unit = 1; } }
+                            Button { text: "24h"; clicked => { root.draft-interval-value = "24"; root.draft-interval-unit = 1; } }
+                        }
+                    }
+
+                    Rectangle { vertical-stretch: 1; }
+                    HorizontalBox {
+                        alignment: space-between;
+                        Text { text: root.status-text; color: Palette.alternate-foreground; }
+                        Button {
+                            text: root.busy ? "Applying…" : "Apply";
+                            enabled: root.can-apply && !root.busy && root.draft-kind != WallpaperKind.current;
+                            clicked => { root.apply-monitor(); }
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalBox {
+            alignment: space-between;
+            CheckBox {
+                text: "Start Wallset with Windows";
+                checked <=> root.launch-at-login;
+                toggled => { root.startup-changed(self.checked); }
+            }
+            Text { text: "Closing the window keeps slideshows running in the tray."; font-size: 12px; }
+        }
+    }
+}
+
+export component AppTray inherits SystemTrayIcon {
+    icon: @image-url("../assets/wallset.svg");
+    tooltip: "Wallset";
+    callback open();
+    callback next-all();
+    callback quit();
+    callback icon-clicked();
+    clicked => { root.icon-clicked(); }
+    Menu {
+        MenuItem { title: "Open Wallset"; activated => { root.open(); } }
+        MenuItem { title: "Next on all slideshows"; activated => { root.next-all(); } }
+        MenuSeparator { }
+        MenuItem { title: "Quit"; activated => { root.quit(); } }
+    }
+}

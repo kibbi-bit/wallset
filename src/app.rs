@@ -101,6 +101,7 @@ fn wire_window(window: &AppWindow, state: Arc<Mutex<UiState>>, command_tx: mpsc:
     });
 
     let weak = window.as_weak();
+    let state_for_picture = Arc::clone(&state);
     window.on_choose_picture(move || {
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Choose wallpaper")
@@ -110,10 +111,15 @@ fn wire_window(window: &AppWindow, state: Arc<Mutex<UiState>>, command_tx: mpsc:
         {
             window.set_draft_picture_path(path.to_string_lossy().into_owned().into());
             set_preview_path(&window, &path);
+            update_can_apply(
+                &window,
+                &state_for_picture.lock().expect("UI state poisoned"),
+            );
         }
     });
 
     let weak = window.as_weak();
+    let state_for_folder = Arc::clone(&state);
     window.on_choose_folder(move || {
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Choose slideshow folder")
@@ -121,6 +127,18 @@ fn wire_window(window: &AppWindow, state: Arc<Mutex<UiState>>, command_tx: mpsc:
             && let Some(window) = weak.upgrade()
         {
             window.set_draft_slideshow_folder(path.to_string_lossy().into_owned().into());
+            update_can_apply(
+                &window,
+                &state_for_folder.lock().expect("UI state poisoned"),
+            );
+        }
+    });
+
+    let weak = window.as_weak();
+    let state_for_draft = Arc::clone(&state);
+    window.on_draft_changed(move || {
+        if let Some(window) = weak.upgrade() {
+            update_can_apply(&window, &state_for_draft.lock().expect("UI state poisoned"));
         }
     });
 
@@ -149,9 +167,10 @@ fn wire_window(window: &AppWindow, state: Arc<Mutex<UiState>>, command_tx: mpsc:
             return;
         };
         match mode_from_draft(&window) {
-            Ok(mode) => {
+            Ok(mode) if state.config.monitors.get(&monitor_id).map(|c| &c.mode) != Some(&mode) => {
                 let _ = tx.send(Command::Apply { monitor_id, mode });
             }
+            Ok(_) => window.set_can_apply(false),
             Err(error) => window.set_status_text(error.into()),
         }
     });
@@ -280,6 +299,7 @@ fn update_monitor_model(window: &AppWindow, state: &UiState) {
 fn load_selected_draft(window: &AppWindow, state: &UiState) {
     let Some(id) = &state.selected_id else {
         render_draft(window, &WallpaperDraft::Current { path: None });
+        window.set_can_apply(false);
         return;
     };
     if let Some(config) = state.config.monitors.get(id) {
@@ -292,6 +312,18 @@ fn load_selected_draft(window: &AppWindow, state: &UiState) {
             .and_then(|monitor| monitor.current_wallpaper.clone());
         render_draft(window, &WallpaperDraft::Current { path });
     }
+    update_can_apply(window, state);
+}
+
+fn update_can_apply(window: &AppWindow, state: &UiState) {
+    let saved = state
+        .selected_id
+        .as_ref()
+        .and_then(|id| state.config.monitors.get(id))
+        .map(|config| &config.mode);
+    let can_apply =
+        draft_from_window(window).is_applyable_against(saved) && state.selected_id.is_some();
+    window.set_can_apply(can_apply);
 }
 
 fn render_draft(window: &AppWindow, draft: &WallpaperDraft) {
@@ -351,7 +383,11 @@ fn set_preview_path(window: &AppWindow, path: &std::path::Path) {
 }
 
 fn mode_from_draft(window: &AppWindow) -> Result<WallpaperMode, String> {
-    let draft = match window.get_draft_kind() {
+    draft_from_window(window).apply_intent()
+}
+
+fn draft_from_window(window: &AppWindow) -> WallpaperDraft {
+    match window.get_draft_kind() {
         WallpaperKind::Picture => WallpaperDraft::Picture {
             path: PathBuf::from(window.get_draft_picture_path().as_str()),
         },
@@ -373,6 +409,5 @@ fn mode_from_draft(window: &AppWindow) -> Result<WallpaperMode, String> {
             },
         },
         WallpaperKind::Current => WallpaperDraft::Current { path: None },
-    };
-    draft.apply_intent()
+    }
 }

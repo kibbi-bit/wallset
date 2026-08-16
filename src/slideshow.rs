@@ -103,6 +103,24 @@ impl<C: ImageCatalog> Lifecycle<C> {
         Ok(())
     }
 
+    pub fn reconfigure(
+        &mut self,
+        monitor_id: &str,
+        slideshow: &mut Slideshow,
+        now: Instant,
+    ) -> Result<(), String> {
+        let images = self.catalog.images(&slideshow.folder)?;
+        if images.is_empty() {
+            return Err("The slideshow folder is empty".into());
+        }
+        let available: HashSet<&Path> = images.iter().map(|image| image.path.as_path()).collect();
+        slideshow
+            .remaining_deck
+            .retain(|path| available.contains(path.as_path()));
+        self.schedule(monitor_id, now, slideshow.interval_seconds);
+        Ok(())
+    }
+
     pub fn advance(
         &mut self,
         monitor_id: &str,
@@ -189,7 +207,7 @@ impl<C: ImageCatalog> Lifecycle<C> {
     }
 }
 
-fn windows_paths_equal(left: &Path, right: &Path) -> bool {
+pub(crate) fn windows_paths_equal(left: &Path, right: &Path) -> bool {
     left.components()
         .map(|component| component.as_os_str().to_string_lossy().to_lowercase())
         .eq(right

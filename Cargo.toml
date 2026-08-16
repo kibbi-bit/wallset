@@ -1,8 +1,11 @@
 [package]
 name = "wallset"
 version = "0.1.0"
+description = "A Windows wallpaper manager with per-monitor pictures, colors, and slideshows"
 edition = "2024"
 build = "build.rs"
+license = "MIT"
+repository = "https://github.com/kibbi-bit/wallset"
 
 [dependencies]
 directories = "6.0"

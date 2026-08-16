@@ -44,3 +44,9 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo build --release
 ```
+
+## Slint attribution
+
+<img src="./docs/MadeWithSlint-logo-whitebg.png" style="width:120px; height:auto; margin-bottom:8px;">
+
+Wallset is built with [Slint](https://slint.dev/) and uses Slint under the [Slint Royalty-free Desktop, Mobile, and Web Applications License](https://slint.dev/terms-and-conditions#royalty-free). The distributed application includes Slint's required attribution in its About dialog.

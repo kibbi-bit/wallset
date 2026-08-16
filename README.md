@@ -50,3 +50,9 @@ cargo build --release
 <img src="./docs/MadeWithSlint-logo-whitebg.png" style="width:120px; height:auto; margin-bottom:8px;">
 
 Wallset is built with [Slint](https://slint.dev/) and uses Slint under the [Slint Royalty-free Desktop, Mobile, and Web Applications License](https://slint.dev/terms-and-conditions#royalty-free). The distributed application includes Slint's required attribution in its About dialog.
+
+This choice applies to the Slint framework; Wallset's own code remains MIT-licensed. The Slint terms must be re-checked for the locked version before publishing a binary release. See [third-party licensing and asset provenance](./docs/licensing.md) for the release audit process.
+
+## License
+
+Wallset is available under the [MIT License](./LICENSE). Contributions are licensed on the same terms; see [CONTRIBUTING.md](./CONTRIBUTING.md).

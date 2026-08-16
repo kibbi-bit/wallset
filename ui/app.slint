@@ -35,7 +35,7 @@ export component AppWindow inherits Window {
     in-out property <bool> launch-at-login: false;
     in property <string> status-text: "Ready";
     in property <bool> busy: false;
-    in property <bool> can-apply: selected-index >= 0 && selected-index < monitors.length;
+    in-out property <bool> can-apply: false;
 
     callback select-monitor(int);
     callback choose-picture();
@@ -46,6 +46,7 @@ export component AppWindow inherits Window {
     callback next-wallpaper();
     callback startup-changed(bool);
     callback color-edited(string);
+    callback draft-changed();
 
     background: Palette.background;
 
@@ -120,9 +121,9 @@ export component AppWindow inherits Window {
 
                     HorizontalBox {
                         spacing: 8px;
-                        Button { text: "Picture"; clicked => { root.draft-kind = WallpaperKind.picture; } }
-                        Button { text: "Color"; clicked => { root.draft-kind = WallpaperKind.color; } }
-                        Button { text: "Slideshow"; clicked => { root.draft-kind = WallpaperKind.slideshow; } }
+                        Button { text: "Picture"; clicked => { root.draft-kind = WallpaperKind.picture; root.draft-changed(); } }
+                        Button { text: "Color"; clicked => { root.draft-kind = WallpaperKind.color; root.draft-changed(); } }
+                        Button { text: "Slideshow"; clicked => { root.draft-kind = WallpaperKind.slideshow; root.draft-changed(); } }
                     }
 
                     if root.draft-kind == WallpaperKind.current : Rectangle {
@@ -144,7 +145,7 @@ export component AppWindow inherits Window {
                         HorizontalBox {
                             LineEdit {
                                 text: root.draft-picture-path;
-                                edited(text) => { root.draft-picture-path = text; }
+                                edited(text) => { root.draft-picture-path = text; root.draft-changed(); }
                                 horizontal-stretch: 1;
                             }
                             Button { text: "Browse…"; clicked => { root.choose-picture(); } }
@@ -164,7 +165,7 @@ export component AppWindow inherits Window {
                                 LineEdit {
                                     text: root.draft-color;
                                     placeholder-text: "#RRGGBB";
-                                    edited(text) => { root.draft-color = text; root.color-edited(text); }
+                                    edited(text) => { root.draft-color = text; root.color-edited(text); root.draft-changed(); }
                                 }
                             }
                         }
@@ -177,7 +178,7 @@ export component AppWindow inherits Window {
                             ] : Rectangle {
                                 width: 36px; height: 36px; border-radius: 6px; background: swatch.value;
                                 border-width: 1px; border-color: Palette.border;
-                                TouchArea { clicked => { root.draft-color = swatch.hex; root.color-edited(swatch.hex); } }
+                                TouchArea { clicked => { root.draft-color = swatch.hex; root.color-edited(swatch.hex); root.draft-changed(); } }
                             }
                         }
                     }
@@ -188,7 +189,7 @@ export component AppWindow inherits Window {
                         HorizontalBox {
                             LineEdit {
                                 text: root.draft-slideshow-folder;
-                                edited(text) => { root.draft-slideshow-folder = text; }
+                                edited(text) => { root.draft-slideshow-folder = text; root.draft-changed(); }
                                 horizontal-stretch: 1;
                             }
                             Button { text: "Browse…"; clicked => { root.choose-folder(); } }
@@ -197,6 +198,7 @@ export component AppWindow inherits Window {
                         ComboBox {
                             model: ["Date added", "Random"];
                             current-index <=> root.draft-slideshow-order;
+                            selected(_) => { root.draft-changed(); }
                             width: 180px;
                         }
                         Text { text: "Change every"; font-weight: 600; }
@@ -204,10 +206,10 @@ export component AppWindow inherits Window {
                             spacing: 8px;
                             LineEdit {
                                 text: root.draft-interval-value;
-                                edited(text) => { root.draft-interval-value = text; }
+                                edited(text) => { root.draft-interval-value = text; root.draft-changed(); }
                                 width: 90px;
                             }
-                            ComboBox { model: ["minutes", "hours"]; current-index <=> root.draft-interval-unit; width: 120px; }
+                            ComboBox { model: ["minutes", "hours"]; current-index <=> root.draft-interval-unit; selected(_) => { root.draft-changed(); } width: 120px; }
                             Button { text: "Next now"; clicked => { root.next-wallpaper(); } }
                         }
                     }

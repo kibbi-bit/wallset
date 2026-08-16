@@ -28,6 +28,10 @@ pub enum WallpaperDraft {
 }
 
 impl WallpaperDraft {
+    pub fn is_applyable_against(&self, saved: Option<&WallpaperMode>) -> bool {
+        self.apply_intent().is_ok_and(|mode| saved != Some(&mode))
+    }
+
     pub fn from_mode(mode: &WallpaperMode) -> Self {
         match mode {
             WallpaperMode::Picture { path } => Self::Picture { path: path.clone() },
@@ -189,6 +193,42 @@ mod tests {
             }
             .apply_intent()
             .is_err()
+        );
+    }
+
+    #[test]
+    fn only_a_valid_semantic_change_is_applyable() {
+        let saved = WallpaperMode::Slideshow {
+            folder: "images".into(),
+            interval_seconds: 3600,
+            order: SlideshowOrder::Random,
+        };
+        let unchanged = WallpaperDraft::Slideshow {
+            folder: "images".into(),
+            interval_value: "60".into(),
+            interval_unit: IntervalUnit::Minutes,
+            order: SlideshowOrder::Random,
+        };
+        let changed = WallpaperDraft::Slideshow {
+            folder: "images".into(),
+            interval_value: "60".into(),
+            interval_unit: IntervalUnit::Minutes,
+            order: SlideshowOrder::DateAdded,
+        };
+
+        assert!(!unchanged.is_applyable_against(Some(&saved)));
+        assert!(changed.is_applyable_against(Some(&saved)));
+        assert!(
+            WallpaperDraft::Picture {
+                path: "new.jpg".into()
+            }
+            .is_applyable_against(None)
+        );
+        assert!(
+            !WallpaperDraft::Color {
+                value: "invalid".into()
+            }
+            .is_applyable_against(None)
         );
     }
 }

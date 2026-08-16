@@ -350,6 +350,14 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
     }
 
     fn validate_and_apply(&mut self, monitor_id: &str, mode: WallpaperMode) -> Result<(), String> {
+        if self
+            .config
+            .monitors
+            .get(monitor_id)
+            .is_some_and(|config| config.mode == mode)
+        {
+            return Ok(());
+        }
         if !self.registry.is_connected(monitor_id) {
             return Err("The selected monitor is disconnected".into());
         }
@@ -378,15 +386,37 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
                 interval_seconds,
                 order,
             } => {
-                let backend = &self.backend;
-                let slideshow = self.slideshows.start(
-                    monitor_id,
-                    folder.clone(),
-                    *interval_seconds,
-                    *order,
-                    self.effects.now(),
-                    |path| backend.set_wallpaper(monitor_id, path),
-                )?;
+                let same_folder = self.config.monitors.get(monitor_id).and_then(|config| {
+                    if let WallpaperMode::Slideshow { folder: saved, .. } = &config.mode
+                        && crate::slideshow::windows_paths_equal(saved, folder)
+                    {
+                        Some(config.clone())
+                    } else {
+                        None
+                    }
+                });
+                let slideshow = if let Some(saved) = same_folder {
+                    let mut slideshow = Slideshow {
+                        folder: folder.clone(),
+                        interval_seconds: *interval_seconds,
+                        order: *order,
+                        current_image: saved.current_image,
+                        remaining_deck: saved.remaining_shuffle_deck,
+                    };
+                    self.slideshows
+                        .reconfigure(monitor_id, &mut slideshow, self.effects.now())?;
+                    slideshow
+                } else {
+                    let backend = &self.backend;
+                    self.slideshows.start(
+                        monitor_id,
+                        folder.clone(),
+                        *interval_seconds,
+                        *order,
+                        self.effects.now(),
+                        |path| backend.set_wallpaper(monitor_id, path),
+                    )?
+                };
                 monitor_config.current_image = slideshow.current_image;
                 monitor_config.remaining_shuffle_deck = slideshow.remaining_deck;
             }
@@ -711,6 +741,83 @@ mod tests {
         assert_eq!(
             transitions.config.monitors["monitor"].current_image,
             Some(folder.0.join("current.jpg"))
+        );
+    }
+
+    #[test]
+    fn unchanged_and_same_folder_slideshow_applies_preserve_the_current_image() {
+        for order in [SlideshowOrder::DateAdded, SlideshowOrder::Random] {
+            let folder = TestFolder::with_images(&["current.jpg", "next.jpg"]);
+            let (mut transitions, calls) = slideshow_transitions(&folder.0, order);
+            transitions.registry.reconcile(vec![MonitorInfo {
+                id: "monitor".into(),
+                name: "Monitor".into(),
+                detail: String::new(),
+                current_wallpaper: Some(folder.0.join("next.jpg")),
+                available: true,
+            }]);
+            let unchanged = transitions.config.monitors["monitor"].mode.clone();
+
+            transitions.handle(Command::Apply {
+                monitor_id: "monitor".into(),
+                mode: unchanged,
+            });
+            transitions.handle(Command::Apply {
+                monitor_id: "monitor".into(),
+                mode: WallpaperMode::Slideshow {
+                    folder: folder.0.clone(),
+                    interval_seconds: 600,
+                    order: match order {
+                        SlideshowOrder::DateAdded => SlideshowOrder::Random,
+                        SlideshowOrder::Random => SlideshowOrder::DateAdded,
+                    },
+                },
+            });
+
+            assert!(calls.borrow().is_empty(), "order: {order:?}");
+            let config = &transitions.config.monitors["monitor"];
+            assert_eq!(config.current_image, Some(folder.0.join("next.jpg")));
+            assert_eq!(
+                config.mode,
+                WallpaperMode::Slideshow {
+                    folder: folder.0.clone(),
+                    interval_seconds: 600,
+                    order: match order {
+                        SlideshowOrder::DateAdded => SlideshowOrder::Random,
+                        SlideshowOrder::Random => SlideshowOrder::DateAdded,
+                    },
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn applying_a_different_slideshow_folder_starts_that_slideshow() {
+        let old_folder = TestFolder::with_images(&["old.jpg"]);
+        let new_folder = TestFolder::with_images(&["new.jpg"]);
+        let (mut transitions, calls) =
+            slideshow_transitions(&old_folder.0, SlideshowOrder::DateAdded);
+        transitions.registry.reconcile(vec![MonitorInfo {
+            id: "monitor".into(),
+            name: "Monitor".into(),
+            detail: String::new(),
+            current_wallpaper: Some(old_folder.0.join("old.jpg")),
+            available: true,
+        }]);
+
+        transitions.handle(Command::Apply {
+            monitor_id: "monitor".into(),
+            mode: WallpaperMode::Slideshow {
+                folder: new_folder.0.clone(),
+                interval_seconds: 300,
+                order: SlideshowOrder::DateAdded,
+            },
+        });
+
+        assert_eq!(calls.borrow().len(), 1);
+        assert_eq!(
+            transitions.config.monitors["monitor"].current_image,
+            Some(new_folder.0.join("new.jpg"))
         );
     }
 

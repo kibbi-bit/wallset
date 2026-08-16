@@ -203,16 +203,6 @@ export component AppWindow inherits Window {
                             ComboBox { model: ["minutes", "hours"]; current-index <=> root.draft-interval-unit; width: 120px; }
                             Button { text: "Next now"; clicked => { root.next-wallpaper(); } }
                         }
-                        HorizontalBox {
-                            spacing: 5px;
-                            Button { text: "1m"; clicked => { root.draft-interval-value = "1"; root.draft-interval-unit = 0; } }
-                            Button { text: "5m"; clicked => { root.draft-interval-value = "5"; root.draft-interval-unit = 0; } }
-                            Button { text: "15m"; clicked => { root.draft-interval-value = "15"; root.draft-interval-unit = 0; } }
-                            Button { text: "30m"; clicked => { root.draft-interval-value = "30"; root.draft-interval-unit = 0; } }
-                            Button { text: "1h"; clicked => { root.draft-interval-value = "1"; root.draft-interval-unit = 1; } }
-                            Button { text: "6h"; clicked => { root.draft-interval-value = "6"; root.draft-interval-unit = 1; } }
-                            Button { text: "24h"; clicked => { root.draft-interval-value = "24"; root.draft-interval-unit = 1; } }
-                        }
                     }
 
                     Rectangle { vertical-stretch: 1; }

@@ -13,7 +13,7 @@ The configured source of a monitor's wallpaper: a picture, a solid color, or a s
 _Avoid_: Wallpaper kind, source type
 
 **Slideshow**:
-A wallpaper mode that selects images from one folder using a persisted no-repeat deck and advances on a per-monitor interval.
+A wallpaper mode that selects images from one folder by date added or using a persisted no-repeat deck, and advances on a per-monitor interval.
 _Avoid_: Rotation, playlist
 
 **Wallpaper draft**:

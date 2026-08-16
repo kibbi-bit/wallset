@@ -30,6 +30,7 @@ export component AppWindow inherits Window {
     in property <color> preview-color: #2563EB;
     in-out property <string> draft-interval-value: "15";
     in-out property <int> draft-interval-unit: 0;
+    in-out property <int> draft-slideshow-order: 0;
     in-out property <int> fit-index: 0;
     in-out property <bool> launch-at-login: false;
     in property <string> status-text: "Ready";
@@ -191,6 +192,12 @@ export component AppWindow inherits Window {
                                 horizontal-stretch: 1;
                             }
                             Button { text: "Browse…"; clicked => { root.choose-folder(); } }
+                        }
+                        Text { text: "Order"; font-weight: 600; }
+                        ComboBox {
+                            model: ["Date added", "Random"];
+                            current-index <=> root.draft-slideshow-order;
+                            width: 180px;
                         }
                         Text { text: "Change every"; font-weight: 600; }
                         HorizontalBox {

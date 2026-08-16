@@ -5,7 +5,7 @@ Wallset is a small Windows 11 wallpaper manager written in Rust with a Slint UI.
 ## Features
 
 - Independent picture, color, and slideshow configuration per physical monitor
-- No-repeat randomized slideshow decks with 1, 5, 15, and 30 minute or 1, 6, and 24 hour presets, plus custom intervals
+- Slideshow ordering by newest date added or a no-repeat randomized deck, with custom minute or hour intervals
 - Shared Fill, Fit, Stretch, Center, or Tile positioning
 - Monitor hot-plug detection with saved configuration restoration
 - Native Slint system tray; closing the window keeps slideshows running
@@ -33,7 +33,7 @@ The executable is written to `target\release\wallset.exe`. This personal MVP doe
 1. Select a display from the left side of the window.
 2. Choose Picture, Color, or Slideshow.
 3. Select an image/folder or enter a `#RRGGBB` color. Slideshow folders are scanned at their top level for JPEG, PNG, and BMP files.
-4. Choose an interval for a slideshow and press **Apply**.
+4. Choose an order and interval for a slideshow, then press **Apply**.
 5. Repeat for other monitors. The Image fit control is intentionally shared because Windows exposes it as a desktop-wide setting.
 
 Closing the window hides it in the notification area. Use the tray menu to reopen Wallset, advance all active slideshows, or quit. Quitting stops slideshow changes; saved settings resume when Wallset is launched again.

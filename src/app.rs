@@ -7,7 +7,7 @@ use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
 
 use crate::{
     AppTray, AppWindow, MonitorRow, WallpaperKind,
-    config::{AppConfig, FitMode, Paths, WallpaperMode},
+    config::{AppConfig, FitMode, Paths, SlideshowOrder, WallpaperMode},
     instance::InstanceGuard,
     startup,
     wallpaper::{self, Command, Event, MonitorInfo},
@@ -298,6 +298,7 @@ fn render_draft(window: &AppWindow, draft: &WallpaperDraft) {
     match draft {
         WallpaperDraft::Current { path } => {
             window.set_draft_kind(WallpaperKind::Current);
+            window.set_draft_slideshow_order(0);
             window.set_current_path(
                 path.as_ref()
                     .map(|path| path.to_string_lossy().into_owned())
@@ -312,11 +313,13 @@ fn render_draft(window: &AppWindow, draft: &WallpaperDraft) {
         }
         WallpaperDraft::Picture { path } => {
             window.set_draft_kind(WallpaperKind::Picture);
+            window.set_draft_slideshow_order(0);
             window.set_draft_picture_path(path.to_string_lossy().into_owned().into());
             set_preview_path(window, path);
         }
         WallpaperDraft::Color { value } => {
             window.set_draft_kind(WallpaperKind::Color);
+            window.set_draft_slideshow_order(0);
             window.set_draft_color(value.clone().into());
             if let Some(rgb) = draft.color_rgb() {
                 window.set_preview_color(slint::Color::from_rgb_u8(rgb[0], rgb[1], rgb[2]));
@@ -326,6 +329,7 @@ fn render_draft(window: &AppWindow, draft: &WallpaperDraft) {
             folder,
             interval_value,
             interval_unit,
+            order,
         } => {
             window.set_draft_kind(WallpaperKind::Slideshow);
             window.set_draft_slideshow_folder(folder.to_string_lossy().into_owned().into());
@@ -333,6 +337,10 @@ fn render_draft(window: &AppWindow, draft: &WallpaperDraft) {
             window.set_draft_interval_unit(match interval_unit {
                 IntervalUnit::Minutes => 0,
                 IntervalUnit::Hours => 1,
+            });
+            window.set_draft_slideshow_order(match order {
+                SlideshowOrder::DateAdded => 0,
+                SlideshowOrder::Random => 1,
             });
         }
     }
@@ -357,6 +365,11 @@ fn mode_from_draft(window: &AppWindow) -> Result<WallpaperMode, String> {
                 IntervalUnit::Hours
             } else {
                 IntervalUnit::Minutes
+            },
+            order: if window.get_draft_slideshow_order() == 1 {
+                SlideshowOrder::Random
+            } else {
+                SlideshowOrder::DateAdded
             },
         },
         WallpaperKind::Current => WallpaperDraft::Current { path: None },

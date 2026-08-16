@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::config::WallpaperMode;
+use crate::config::{SlideshowOrder, WallpaperMode};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IntervalUnit {
@@ -23,6 +23,7 @@ pub enum WallpaperDraft {
         folder: PathBuf,
         interval_value: String,
         interval_unit: IntervalUnit,
+        order: SlideshowOrder,
     },
 }
 
@@ -36,6 +37,7 @@ impl WallpaperDraft {
             WallpaperMode::Slideshow {
                 folder,
                 interval_seconds,
+                order,
             } => {
                 let (interval_value, interval_unit) = if interval_seconds % 3600 == 0 {
                     ((interval_seconds / 3600).to_string(), IntervalUnit::Hours)
@@ -46,6 +48,7 @@ impl WallpaperDraft {
                     folder: folder.clone(),
                     interval_value,
                     interval_unit,
+                    order: *order,
                 }
             }
         }
@@ -62,6 +65,7 @@ impl WallpaperDraft {
                 folder,
                 interval_value,
                 interval_unit,
+                order,
             } => {
                 let value: u64 = interval_value
                     .trim()
@@ -80,6 +84,7 @@ impl WallpaperDraft {
                 Ok(WallpaperMode::Slideshow {
                     folder: folder.clone(),
                     interval_seconds,
+                    order: *order,
                 })
             }
         }
@@ -122,10 +127,12 @@ mod tests {
             WallpaperMode::Slideshow {
                 folder: "images".into(),
                 interval_seconds: 3600,
+                order: SlideshowOrder::Random,
             },
             WallpaperMode::Slideshow {
                 folder: "images".into(),
                 interval_seconds: 900,
+                order: SlideshowOrder::DateAdded,
             },
         ];
         for mode in modes {
@@ -141,10 +148,12 @@ mod tests {
         let exact = WallpaperDraft::from_mode(&WallpaperMode::Slideshow {
             folder: "images".into(),
             interval_seconds: 7200,
+            order: SlideshowOrder::Random,
         });
         let partial = WallpaperDraft::from_mode(&WallpaperMode::Slideshow {
             folder: "images".into(),
             interval_seconds: 5400,
+            order: SlideshowOrder::Random,
         });
         assert!(matches!(
             exact,
@@ -175,7 +184,8 @@ mod tests {
             WallpaperDraft::Slideshow {
                 folder: "images".into(),
                 interval_value: "0".into(),
-                interval_unit: IntervalUnit::Minutes
+                interval_unit: IntervalUnit::Minutes,
+                order: SlideshowOrder::DateAdded,
             }
             .apply_intent()
             .is_err()

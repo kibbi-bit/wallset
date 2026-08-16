@@ -20,6 +20,14 @@ pub enum FitMode {
     Tile,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlideshowOrder {
+    DateAdded,
+    #[default]
+    Random,
+}
+
 impl FitMode {
     pub fn from_index(index: i32) -> Self {
         match index {
@@ -54,6 +62,8 @@ pub enum WallpaperMode {
     Slideshow {
         folder: PathBuf,
         interval_seconds: u64,
+        #[serde(default)]
+        order: SlideshowOrder,
     },
 }
 
@@ -200,5 +210,19 @@ mod tests {
         for index in 0..=4 {
             assert_eq!(FitMode::from_index(index).index(), index);
         }
+    }
+
+    #[test]
+    fn legacy_slideshow_defaults_to_random_order() {
+        let json = r#"{"kind":"slideshow","folder":"images","interval_seconds":900}"#;
+        let mode: WallpaperMode = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            mode,
+            WallpaperMode::Slideshow {
+                folder: "images".into(),
+                interval_seconds: 900,
+                order: SlideshowOrder::Random,
+            }
+        );
     }
 }

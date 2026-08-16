@@ -376,12 +376,14 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
             WallpaperMode::Slideshow {
                 folder,
                 interval_seconds,
+                order,
             } => {
                 let backend = &self.backend;
                 let slideshow = self.slideshows.start(
                     monitor_id,
                     folder.clone(),
                     *interval_seconds,
+                    *order,
                     self.effects.now(),
                     |path| backend.set_wallpaper(monitor_id, path),
                 )?;
@@ -417,10 +419,12 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
             WallpaperMode::Slideshow {
                 folder,
                 interval_seconds,
+                order,
             } => {
                 let mut slideshow = Slideshow {
                     folder,
                     interval_seconds,
+                    order,
                     current_image: config.current_image,
                     remaining_deck: config.remaining_shuffle_deck,
                 };
@@ -456,11 +460,13 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
         let result = if let WallpaperMode::Slideshow {
             folder,
             interval_seconds,
+            order,
         } = &config.mode
         {
             let mut slideshow = Slideshow {
                 folder: folder.clone(),
                 interval_seconds: *interval_seconds,
+                order: *order,
                 current_image: config.current_image.clone(),
                 remaining_deck: std::mem::take(&mut config.remaining_shuffle_deck),
             };

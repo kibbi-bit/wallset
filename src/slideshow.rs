@@ -2,15 +2,34 @@ use std::{
     collections::{BTreeMap, HashSet},
     fs,
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use rand::seq::SliceRandom;
+
+use crate::config::SlideshowOrder;
+
+#[derive(Clone, Debug)]
+pub struct ImageFile {
+    path: PathBuf,
+    added: Option<SystemTime>,
+}
+
+impl ImageFile {
+    #[cfg(test)]
+    fn new(path: impl Into<PathBuf>, added: Option<SystemTime>) -> Self {
+        Self {
+            path: path.into(),
+            added,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Slideshow {
     pub folder: PathBuf,
     pub interval_seconds: u64,
+    pub order: SlideshowOrder,
     pub current_image: Option<PathBuf>,
     pub remaining_deck: Vec<PathBuf>,
 }
@@ -39,6 +58,7 @@ impl<C: ImageCatalog> Lifecycle<C> {
         monitor_id: &str,
         folder: PathBuf,
         interval_seconds: u64,
+        order: SlideshowOrder,
         now: Instant,
         mut apply: impl FnMut(&Path) -> Result<(), String>,
     ) -> Result<Slideshow, String> {
@@ -48,6 +68,7 @@ impl<C: ImageCatalog> Lifecycle<C> {
         let mut slideshow = Slideshow {
             folder,
             interval_seconds,
+            order,
             current_image: None,
             remaining_deck: Vec::new(),
         };
@@ -116,17 +137,29 @@ impl<C: ImageCatalog> Lifecycle<C> {
         if images.is_empty() {
             return Err("The slideshow folder is empty".into());
         }
-        for _ in 0..images.len() {
-            let Some(next) = next_image(
-                &images,
-                slideshow.current_image.as_deref(),
-                &mut slideshow.remaining_deck,
-            ) else {
-                break;
-            };
-            if apply(&next).is_ok() {
-                slideshow.current_image = Some(next);
-                return Ok(());
+        match slideshow.order {
+            SlideshowOrder::DateAdded => {
+                for next in date_added_candidates(images, slideshow.current_image.as_deref()) {
+                    if apply(&next).is_ok() {
+                        slideshow.current_image = Some(next);
+                        return Ok(());
+                    }
+                }
+            }
+            SlideshowOrder::Random => {
+                for _ in 0..images.len() {
+                    let Some(next) = next_random_image(
+                        &images,
+                        slideshow.current_image.as_deref(),
+                        &mut slideshow.remaining_deck,
+                    ) else {
+                        break;
+                    };
+                    if apply(&next).is_ok() {
+                        slideshow.current_image = Some(next);
+                        return Ok(());
+                    }
+                }
             }
         }
         Err("No slideshow image could be applied".into())
@@ -134,13 +167,13 @@ impl<C: ImageCatalog> Lifecycle<C> {
 }
 
 pub trait ImageCatalog {
-    fn images(&self, folder: &Path) -> Result<Vec<PathBuf>, String>;
+    fn images(&self, folder: &Path) -> Result<Vec<ImageFile>, String>;
 }
 
 pub struct FileSystemCatalog;
 
 impl ImageCatalog for FileSystemCatalog {
-    fn images(&self, folder: &Path) -> Result<Vec<PathBuf>, String> {
+    fn images(&self, folder: &Path) -> Result<Vec<ImageFile>, String> {
         if !folder.is_dir() {
             return Err("Choose an existing slideshow folder".into());
         }
@@ -150,10 +183,13 @@ impl ImageCatalog for FileSystemCatalog {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() && is_supported_image(&path) {
-                images.push(path);
+                let added = entry
+                    .metadata()
+                    .ok()
+                    .and_then(|metadata| metadata.created().or_else(|_| metadata.modified()).ok());
+                images.push(ImageFile { path, added });
             }
         }
-        images.sort_by_key(|path| path.to_string_lossy().to_lowercase());
         Ok(images)
     }
 }
@@ -169,53 +205,85 @@ pub fn is_supported_image(path: &Path) -> bool {
         })
 }
 
-fn next_image(
-    images: &[PathBuf],
+fn next_random_image(
+    images: &[ImageFile],
     current: Option<&Path>,
     remaining: &mut Vec<PathBuf>,
 ) -> Option<PathBuf> {
-    let available: HashSet<&Path> = images.iter().map(PathBuf::as_path).collect();
+    let available: HashSet<&Path> = images.iter().map(|image| image.path.as_path()).collect();
     remaining.retain(|path| available.contains(path.as_path()));
     if remaining.is_empty() {
         *remaining = images
             .iter()
+            .map(|image| &image.path)
             .filter(|path| Some(path.as_path()) != current)
             .cloned()
             .collect();
         remaining.shuffle(&mut rand::rng());
         if remaining.is_empty() {
-            remaining.extend_from_slice(images);
+            remaining.extend(images.iter().map(|image| image.path.clone()));
         }
     }
     remaining.pop()
+}
+
+fn date_added_candidates(mut images: Vec<ImageFile>, current: Option<&Path>) -> Vec<PathBuf> {
+    images.sort_by(|left, right| {
+        right.added.cmp(&left.added).then_with(|| {
+            left.path
+                .to_string_lossy()
+                .to_lowercase()
+                .cmp(&right.path.to_string_lossy().to_lowercase())
+        })
+    });
+    let mut paths: Vec<_> = images.into_iter().map(|image| image.path).collect();
+    if let Some(position) = paths
+        .iter()
+        .position(|path| Some(path.as_path()) == current)
+    {
+        let length = paths.len();
+        paths.rotate_left((position + 1) % length);
+    }
+    paths
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    struct Catalog(Vec<PathBuf>);
+    struct Catalog(Vec<ImageFile>);
     impl ImageCatalog for Catalog {
-        fn images(&self, _: &Path) -> Result<Vec<PathBuf>, String> {
+        fn images(&self, _: &Path) -> Result<Vec<ImageFile>, String> {
             Ok(self.0.clone())
         }
+    }
+
+    fn catalog(paths: &[&str]) -> Catalog {
+        Catalog(
+            paths
+                .iter()
+                .map(|path| ImageFile::new(*path, None))
+                .collect(),
+        )
     }
 
     #[test]
     fn lifecycle_preserves_a_no_repeat_deck_and_reschedules() {
         let now = Instant::now();
-        let mut lifecycle = Lifecycle::new(Catalog(
-            ["a.jpg", "b.jpg", "c.jpg"]
-                .into_iter()
-                .map(PathBuf::from)
-                .collect(),
-        ));
+        let mut lifecycle = Lifecycle::new(catalog(&["a.jpg", "b.jpg", "c.jpg"]));
         let mut applied = Vec::new();
         let mut slideshow = lifecycle
-            .start("monitor", "folder".into(), 60, now, |path| {
-                applied.push(path.to_owned());
-                Ok(())
-            })
+            .start(
+                "monitor",
+                "folder".into(),
+                60,
+                SlideshowOrder::Random,
+                now,
+                |path| {
+                    applied.push(path.to_owned());
+                    Ok(())
+                },
+            )
             .unwrap();
         lifecycle
             .advance(
@@ -238,16 +306,23 @@ mod tests {
 
     #[test]
     fn lifecycle_retries_an_image_that_cannot_be_applied() {
-        let mut lifecycle = Lifecycle::new(Catalog(vec!["a.jpg".into(), "b.jpg".into()]));
+        let mut lifecycle = Lifecycle::new(catalog(&["a.jpg", "b.jpg"]));
         let mut attempts = 0;
-        let slideshow = lifecycle.start("monitor", "folder".into(), 60, Instant::now(), |_| {
-            attempts += 1;
-            if attempts == 1 {
-                Err("bad image".into())
-            } else {
-                Ok(())
-            }
-        });
+        let slideshow = lifecycle.start(
+            "monitor",
+            "folder".into(),
+            60,
+            SlideshowOrder::Random,
+            Instant::now(),
+            |_| {
+                attempts += 1;
+                if attempts == 1 {
+                    Err("bad image".into())
+                } else {
+                    Ok(())
+                }
+            },
+        );
         assert!(slideshow.is_ok());
         assert_eq!(attempts, 2);
     }
@@ -255,11 +330,111 @@ mod tests {
     #[test]
     fn missed_deadline_is_reported_once() {
         let now = Instant::now();
-        let mut lifecycle = Lifecycle::new(Catalog(vec!["a.jpg".into()]));
+        let mut lifecycle = Lifecycle::new(catalog(&["a.jpg"]));
         lifecycle
-            .start("monitor", "folder".into(), 60, now, |_| Ok(()))
+            .start(
+                "monitor",
+                "folder".into(),
+                60,
+                SlideshowOrder::Random,
+                now,
+                |_| Ok(()),
+            )
             .unwrap();
         assert_eq!(lifecycle.due(now + Duration::from_secs(600)), ["monitor"]);
         assert!(lifecycle.due(now + Duration::from_secs(601)).is_empty());
+    }
+
+    #[test]
+    fn date_added_advances_newest_to_oldest_and_wraps() {
+        let base = SystemTime::UNIX_EPOCH;
+        let mut lifecycle = Lifecycle::new(Catalog(vec![
+            ImageFile::new("old.jpg", Some(base + Duration::from_secs(1))),
+            ImageFile::new("new.jpg", Some(base + Duration::from_secs(3))),
+            ImageFile::new("middle.jpg", Some(base + Duration::from_secs(2))),
+        ]));
+        let now = Instant::now();
+        let mut applied = Vec::new();
+        let mut slideshow = lifecycle
+            .start(
+                "monitor",
+                "folder".into(),
+                60,
+                SlideshowOrder::DateAdded,
+                now,
+                |path| {
+                    applied.push(path.to_owned());
+                    Ok(())
+                },
+            )
+            .unwrap();
+        for step in 1..=3 {
+            lifecycle
+                .advance(
+                    "monitor",
+                    &mut slideshow,
+                    now + Duration::from_secs(60 * step),
+                    |path| {
+                        applied.push(path.to_owned());
+                        Ok(())
+                    },
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            applied,
+            ["new.jpg", "middle.jpg", "old.jpg", "new.jpg"].map(PathBuf::from)
+        );
+    }
+
+    #[test]
+    fn date_added_uses_path_as_a_deterministic_tie_breaker() {
+        let candidates = date_added_candidates(
+            vec![ImageFile::new("b.jpg", None), ImageFile::new("A.jpg", None)],
+            None,
+        );
+        assert_eq!(candidates, ["A.jpg", "b.jpg"].map(PathBuf::from));
+    }
+
+    #[test]
+    fn date_added_resumes_at_newest_when_current_image_is_missing() {
+        let base = SystemTime::UNIX_EPOCH;
+        let candidates = date_added_candidates(
+            vec![
+                ImageFile::new("old.jpg", Some(base + Duration::from_secs(1))),
+                ImageFile::new("new.jpg", Some(base + Duration::from_secs(2))),
+            ],
+            Some(Path::new("removed.jpg")),
+        );
+        assert_eq!(candidates, ["new.jpg", "old.jpg"].map(PathBuf::from));
+    }
+
+    #[test]
+    fn date_added_retries_the_next_image_when_apply_fails() {
+        let base = SystemTime::UNIX_EPOCH;
+        let mut lifecycle = Lifecycle::new(Catalog(vec![
+            ImageFile::new("old.jpg", Some(base + Duration::from_secs(1))),
+            ImageFile::new("new.jpg", Some(base + Duration::from_secs(2))),
+        ]));
+        let mut attempts = Vec::new();
+        let slideshow = lifecycle
+            .start(
+                "monitor",
+                "folder".into(),
+                60,
+                SlideshowOrder::DateAdded,
+                Instant::now(),
+                |path| {
+                    attempts.push(path.to_owned());
+                    if path == Path::new("new.jpg") {
+                        Err("bad image".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+            )
+            .unwrap();
+        assert_eq!(attempts, ["new.jpg", "old.jpg"].map(PathBuf::from));
+        assert_eq!(slideshow.current_image, Some("old.jpg".into()));
     }
 }

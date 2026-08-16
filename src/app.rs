@@ -6,7 +6,7 @@ use std::{
 use slint::{CloseRequestResponse, ComponentHandle, ModelRc, VecModel};
 
 use crate::{
-    AppTray, AppWindow, MonitorRow, WallpaperKind,
+    AboutWindow, AppTray, AppWindow, MonitorRow, WallpaperKind,
     config::{AppConfig, FitMode, Paths, SlideshowOrder, WallpaperMode},
     instance::InstanceGuard,
     startup,
@@ -30,7 +30,9 @@ pub fn run(instance: InstanceGuard) -> Result<(), Box<dyn std::error::Error>> {
     config.launch_at_login = startup::is_enabled();
 
     let window = AppWindow::new()?;
+    let about = AboutWindow::new()?;
     let tray = AppTray::new()?;
+    about.set_wallset_version(env!("CARGO_PKG_VERSION").into());
     window.set_fit_index(config.shared_fit.index());
     window.set_launch_at_login(config.launch_at_login);
 
@@ -42,6 +44,7 @@ pub fn run(instance: InstanceGuard) -> Result<(), Box<dyn std::error::Error>> {
     let command_tx = wallpaper::spawn(paths, config, event_tx);
 
     wire_window(&window, Arc::clone(&state), command_tx.clone());
+    wire_about(&window, &about, &tray);
     wire_tray(&window, &tray, command_tx.clone());
     forward_events(&window, Arc::clone(&state), event_rx);
     watch_activation(&window, instance.activation_event());
@@ -57,6 +60,33 @@ pub fn run(instance: InstanceGuard) -> Result<(), Box<dyn std::error::Error>> {
     let _ = command_tx.send(Command::Stop);
     drop(instance);
     Ok(())
+}
+
+fn wire_about(window: &AppWindow, about: &AboutWindow, tray: &AppTray) {
+    about
+        .window()
+        .on_close_requested(|| CloseRequestResponse::HideWindow);
+
+    let weak = about.as_weak();
+    window.on_about(move || {
+        if let Some(about) = weak.upgrade() {
+            let _ = about.show();
+        }
+    });
+
+    let weak = about.as_weak();
+    tray.on_about(move || {
+        if let Some(about) = weak.upgrade() {
+            let _ = about.show();
+        }
+    });
+
+    let weak = about.as_weak();
+    about.on_dismiss(move || {
+        if let Some(about) = weak.upgrade() {
+            let _ = about.hide();
+        }
+    });
 }
 
 fn watch_activation(window: &AppWindow, event: windows::Win32::Foundation::HANDLE) {

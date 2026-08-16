@@ -1,5 +1,5 @@
-import { Button, CheckBox, ComboBox, HorizontalBox, LineEdit, ListView, Palette,
-         Slider, SpinBox, StandardListView, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, Button, CheckBox, ComboBox, HorizontalBox, LineEdit, ListView,
+         Palette, Slider, SpinBox, StandardListView, VerticalBox } from "std-widgets.slint";
 
 export struct MonitorRow {
     id: string,
@@ -47,6 +47,7 @@ export component AppWindow inherits Window {
     callback startup-changed(bool);
     callback color-edited(string);
     callback draft-changed();
+    callback about();
 
     background: Palette.background;
 
@@ -56,7 +57,23 @@ export component AppWindow inherits Window {
 
         HorizontalBox {
             alignment: space-between;
-            Text { text: "Wallset"; font-size: 26px; font-weight: 700; }
+            HorizontalBox {
+                spacing: 10px;
+                Text { text: "Wallset"; font-size: 26px; font-weight: 700; }
+                Rectangle {
+                    width: 40px;
+                    Text {
+                        text: "About";
+                        color: Palette.accent-background;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                    }
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.about(); }
+                    }
+                }
+            }
             HorizontalBox {
                 spacing: 8px;
                 Text { text: "Image fit"; vertical-alignment: center; }
@@ -240,17 +257,73 @@ export component AppWindow inherits Window {
     }
 }
 
+export component AboutWindow inherits Window {
+    title: "About Wallset";
+    icon: @image-url("../assets/wallset.svg");
+    width: 400px;
+    height: 390px;
+
+    in property <string> wallset-version;
+    callback dismiss();
+
+    background: Palette.background;
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 12px;
+        alignment: start;
+
+        Image {
+            source: @image-url("../assets/wallset.svg");
+            width: 56px;
+            height: 56px;
+            image-fit: contain;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "Wallset " + root.wallset-version;
+            font-size: 24px;
+            font-weight: 700;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "Copyright © 2026 kibbi-bit. All rights reserved.";
+            horizontal-alignment: center;
+            font-size: 12px;
+        }
+        Rectangle { height: 1px; background: Palette.border; }
+        Text { text: "Third-party notices"; font-weight: 600; }
+        Text {
+            text: "Built with Slint under the Slint Royalty-free Desktop, Mobile, and Web Applications License.";
+            wrap: word-wrap;
+            horizontal-alignment: center;
+        }
+        AboutSlint { height: 78px; }
+        Rectangle { vertical-stretch: 1; }
+        HorizontalBox {
+            alignment: center;
+            Button {
+                text: "Close";
+                clicked => { root.dismiss(); }
+            }
+        }
+    }
+}
+
 export component AppTray inherits SystemTrayIcon {
     icon: @image-url("../assets/wallset.svg");
     tooltip: "Wallset";
     callback open();
     callback next-all();
+    callback about();
     callback quit();
     callback icon-clicked();
     clicked => { root.icon-clicked(); }
     Menu {
         MenuItem { title: "Open Wallset"; activated => { root.open(); } }
         MenuItem { title: "Next on all slideshows"; activated => { root.next-all(); } }
+        MenuSeparator { }
+        MenuItem { title: "About Wallset"; activated => { root.about(); } }
         MenuSeparator { }
         MenuItem { title: "Quit"; activated => { root.quit(); } }
     }

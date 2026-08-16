@@ -429,9 +429,11 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
                     remaining_deck: config.remaining_shuffle_deck,
                 };
                 let backend = &self.backend;
+                let current_wallpaper = self.registry.current_wallpaper(monitor_id);
                 match self.slideshows.restore(
                     monitor_id,
                     &mut slideshow,
+                    current_wallpaper.map(PathBuf::as_path),
                     self.effects.now(),
                     |path| backend.set_wallpaper(monitor_id, path),
                 ) {
@@ -571,7 +573,7 @@ impl<B: WallpaperBackend, E: TransitionEffects> Transitions<B, E> {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, path::Path, rc::Rc};
+    use std::{cell::RefCell, fs, path::Path, rc::Rc, time::SystemTime};
 
     use super::*;
     use crate::config::SlideshowOrder;
@@ -585,11 +587,12 @@ mod tests {
     #[derive(Default)]
     struct Backend {
         calls: Rc<RefCell<Vec<BackendCall>>>,
+        monitors: Vec<MonitorInfo>,
     }
 
     impl WallpaperBackend for Backend {
         fn monitors(&self) -> Result<Vec<MonitorInfo>, String> {
-            Ok(Vec::new())
+            Ok(self.monitors.clone())
         }
 
         fn set_wallpaper(&self, monitor_id: &str, path: &Path) -> Result<(), String> {
@@ -630,6 +633,100 @@ mod tests {
         }
     }
 
+    struct TestFolder(PathBuf);
+
+    impl TestFolder {
+        fn with_images(names: &[&str]) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "wallset-test-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            fs::create_dir(&path).unwrap();
+            for name in names {
+                fs::write(path.join(name), []).unwrap();
+            }
+            Self(path)
+        }
+    }
+
+    impl Drop for TestFolder {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn slideshow_transitions(
+        folder: &Path,
+        order: SlideshowOrder,
+    ) -> (Transitions<Backend, Effects>, Rc<RefCell<Vec<BackendCall>>>) {
+        let current = folder.join("current.jpg");
+        let next = folder.join("next.jpg");
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let backend = Backend {
+            calls: Rc::clone(&calls),
+            monitors: vec![MonitorInfo {
+                id: "monitor".into(),
+                name: "Monitor".into(),
+                detail: String::new(),
+                current_wallpaper: Some(current.clone()),
+                available: true,
+            }],
+        };
+        let effects = Effects {
+            now: Instant::now(),
+            fail_save: false,
+            events: RefCell::new(Vec::new()),
+        };
+        let mut config = AppConfig::default();
+        config.monitors.insert(
+            "monitor".into(),
+            MonitorConfig {
+                mode: WallpaperMode::Slideshow {
+                    folder: folder.to_owned(),
+                    interval_seconds: 300,
+                    order,
+                },
+                current_image: Some(next.clone()),
+                remaining_shuffle_deck: vec![current, next],
+            },
+        );
+        (
+            Transitions::new(backend, effects, PathBuf::new(), config),
+            calls,
+        )
+    }
+
+    #[test]
+    fn startup_restore_retains_the_monitors_current_slideshow_image() {
+        let folder = TestFolder::with_images(&["current.jpg", "next.jpg"]);
+        let (mut transitions, calls) = slideshow_transitions(&folder.0, SlideshowOrder::DateAdded);
+
+        transitions.refresh(true, false).unwrap();
+
+        assert!(calls.borrow().is_empty());
+        assert_eq!(
+            transitions.config.monitors["monitor"].current_image,
+            Some(folder.0.join("current.jpg"))
+        );
+    }
+
+    #[test]
+    fn reconnect_restore_retains_the_current_image_and_repairs_random_deck() {
+        let folder = TestFolder::with_images(&["current.jpg", "next.jpg"]);
+        let (mut transitions, calls) = slideshow_transitions(&folder.0, SlideshowOrder::Random);
+
+        transitions.refresh(false, false).unwrap();
+
+        assert!(calls.borrow().is_empty());
+        let config = &transitions.config.monitors["monitor"];
+        assert_eq!(config.current_image, Some(folder.0.join("current.jpg")));
+        assert_eq!(config.remaining_shuffle_deck, [folder.0.join("next.jpg")]);
+    }
+
     #[test]
     fn command_interface_keeps_truthful_state_when_persistence_fails() {
         let effects = Effects {
@@ -661,6 +758,7 @@ mod tests {
         let calls = Rc::new(RefCell::new(Vec::new()));
         let backend = Backend {
             calls: Rc::clone(&calls),
+            ..Backend::default()
         };
         let effects = Effects {
             now: Instant::now(),

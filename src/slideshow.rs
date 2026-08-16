@@ -81,10 +81,24 @@ impl<C: ImageCatalog> Lifecycle<C> {
         &mut self,
         monitor_id: &str,
         slideshow: &mut Slideshow,
+        current_wallpaper: Option<&Path>,
         now: Instant,
         mut apply: impl FnMut(&Path) -> Result<(), String>,
     ) -> Result<(), String> {
-        self.advance_image(slideshow, &mut apply)?;
+        let images = self.catalog.images(&slideshow.folder)?;
+        if let Some(current) = current_wallpaper.and_then(|current| {
+            images
+                .iter()
+                .find(|image| windows_paths_equal(&image.path, current))
+                .map(|image| image.path.clone())
+        }) {
+            slideshow.current_image = Some(current.clone());
+            slideshow
+                .remaining_deck
+                .retain(|path| !windows_paths_equal(path, &current));
+        } else {
+            self.advance_from_images(slideshow, images, &mut apply)?;
+        }
         self.schedule(monitor_id, now, slideshow.interval_seconds);
         Ok(())
     }
@@ -134,6 +148,15 @@ impl<C: ImageCatalog> Lifecycle<C> {
         apply: &mut impl FnMut(&Path) -> Result<(), String>,
     ) -> Result<(), String> {
         let images = self.catalog.images(&slideshow.folder)?;
+        self.advance_from_images(slideshow, images, apply)
+    }
+
+    fn advance_from_images(
+        &self,
+        slideshow: &mut Slideshow,
+        images: Vec<ImageFile>,
+        apply: &mut impl FnMut(&Path) -> Result<(), String>,
+    ) -> Result<(), String> {
         if images.is_empty() {
             return Err("The slideshow folder is empty".into());
         }
@@ -164,6 +187,14 @@ impl<C: ImageCatalog> Lifecycle<C> {
         }
         Err("No slideshow image could be applied".into())
     }
+}
+
+fn windows_paths_equal(left: &Path, right: &Path) -> bool {
+    left.components()
+        .map(|component| component.as_os_str().to_string_lossy().to_lowercase())
+        .eq(right
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy().to_lowercase()))
 }
 
 pub trait ImageCatalog {
@@ -325,6 +356,105 @@ mod tests {
         );
         assert!(slideshow.is_ok());
         assert_eq!(attempts, 2);
+    }
+
+    #[test]
+    fn restore_retains_current_date_added_image_and_reschedules() {
+        let now = Instant::now();
+        let mut lifecycle = Lifecycle::new(catalog(&["folder/current.jpg", "folder/next.jpg"]));
+        let mut slideshow = Slideshow {
+            folder: "folder".into(),
+            interval_seconds: 60,
+            order: SlideshowOrder::DateAdded,
+            current_image: Some("folder/next.jpg".into()),
+            remaining_deck: Vec::new(),
+        };
+        let mut applied = Vec::new();
+
+        lifecycle
+            .restore(
+                "monitor",
+                &mut slideshow,
+                Some(Path::new("FOLDER\\CURRENT.JPG")),
+                now,
+                |path| {
+                    applied.push(path.to_owned());
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        assert!(applied.is_empty());
+        assert_eq!(slideshow.current_image, Some("folder/current.jpg".into()));
+        assert!(lifecycle.due(now + Duration::from_secs(59)).is_empty());
+        assert_eq!(lifecycle.due(now + Duration::from_secs(60)), ["monitor"]);
+    }
+
+    #[test]
+    fn restore_retains_random_image_without_consuming_or_rebuilding_deck() {
+        let now = Instant::now();
+        let mut lifecycle = Lifecycle::new(catalog(&[
+            "folder/current.jpg",
+            "folder/next.jpg",
+            "folder/later.jpg",
+        ]));
+        let mut slideshow = Slideshow {
+            folder: "folder".into(),
+            interval_seconds: 60,
+            order: SlideshowOrder::Random,
+            current_image: Some("folder/old.jpg".into()),
+            remaining_deck: vec![
+                "folder/later.jpg".into(),
+                "folder/current.jpg".into(),
+                "folder/next.jpg".into(),
+            ],
+        };
+
+        lifecycle
+            .restore(
+                "monitor",
+                &mut slideshow,
+                Some(Path::new("folder/current.jpg")),
+                now,
+                |_| panic!("retained wallpaper must not be reapplied"),
+            )
+            .unwrap();
+
+        assert_eq!(slideshow.current_image, Some("folder/current.jpg".into()));
+        assert_eq!(
+            slideshow.remaining_deck,
+            ["folder/later.jpg", "folder/next.jpg"].map(PathBuf::from)
+        );
+    }
+
+    #[test]
+    fn restore_applies_a_valid_image_when_current_wallpaper_is_outside_catalog() {
+        let now = Instant::now();
+        let mut lifecycle = Lifecycle::new(catalog(&["folder/current.jpg", "folder/next.jpg"]));
+        let mut slideshow = Slideshow {
+            folder: "folder".into(),
+            interval_seconds: 60,
+            order: SlideshowOrder::DateAdded,
+            current_image: Some("folder/current.jpg".into()),
+            remaining_deck: Vec::new(),
+        };
+        let mut applied = Vec::new();
+
+        lifecycle
+            .restore(
+                "monitor",
+                &mut slideshow,
+                Some(Path::new("elsewhere/wallpaper.jpg")),
+                now,
+                |path| {
+                    applied.push(path.to_owned());
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        assert_eq!(applied, [PathBuf::from("folder/next.jpg")]);
+        assert_eq!(slideshow.current_image, Some("folder/next.jpg".into()));
     }
 
     #[test]

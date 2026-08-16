@@ -37,6 +37,13 @@ impl MonitorRegistry {
         self.connected_ids.contains(monitor_id)
     }
 
+    pub fn current_wallpaper(&self, monitor_id: &str) -> Option<&PathBuf> {
+        self.connected
+            .iter()
+            .find(|monitor| monitor.id == monitor_id)
+            .and_then(|monitor| monitor.current_wallpaper.as_ref())
+    }
+
     pub fn view<'a>(&self, saved_ids: impl IntoIterator<Item = &'a String>) -> Vec<Monitor> {
         let mut monitors = self.connected.clone();
         for id in saved_ids {

@@ -5252,7 +5252,7 @@ dependencies = [
 
 [[package]]
 name = "wallset"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "directories",
  "image",

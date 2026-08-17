@@ -6,6 +6,8 @@ Wallset is a small Windows 11 wallpaper manager written in Rust with a Slint UI.
 
 ## Features
 
+![Wallset main window](./docs/wallset.png)
+
 - Independent picture, color, and slideshow configuration per physical monitor
 - Slideshow ordering by newest date added or a no-repeat randomized deck, with custom intervals
 - Shared Fill, Fit, Stretch, Center, or Tile positioning

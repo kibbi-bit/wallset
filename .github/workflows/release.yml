@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Validate and package Windows release
+    runs-on: windows-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)$') {
+            throw "Release tag '$tag' must match vMAJOR.MINOR.PATCH exactly."
+          }
+
+          $manifestVersion = (
+            cargo metadata --no-deps --format-version 1 --locked |
+              ConvertFrom-Json
+          ).packages |
+            Where-Object name -eq 'wallset' |
+            Select-Object -ExpandProperty version
+
+          if ($manifestVersion -ne $tag.Substring(1)) {
+            throw "Tag version '$($tag.Substring(1))' does not match Cargo.toml version '$manifestVersion'."
+          }
+
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor '${{ github.sha }}' 'origin/main'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Tagged commit ${{ github.sha }} is not contained in origin/main."
+          }
+
+      - name: Cache Cargo files
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build clean release executable
+        run: |
+          cargo clean
+          cargo build --release --locked
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $archive = "wallset-$tag-windows-x86_64.zip"
+          $staging = Join-Path $env:RUNNER_TEMP "wallset-$tag-windows-x86_64"
+          New-Item -ItemType Directory -Path $staging | Out-Null
+
+          $requiredFiles = @(
+            'target/release/wallset.exe',
+            'README.md',
+            'LICENSE',
+            'THIRD_PARTY_NOTICES.md'
+          )
+          foreach ($file in $requiredFiles) {
+            if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+              throw "Required release file '$file' is missing."
+            }
+            Copy-Item -LiteralPath $file -Destination $staging
+          }
+
+          Compress-Archive -Path "$staging/*" -DestinationPath $archive
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -Encoding ascii -NoNewline "$archive.sha256"
+
+      - name: Store release assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-assets
+          path: |
+            wallset-${{ github.ref_name }}-windows-x86_64.zip
+            wallset-${{ github.ref_name }}-windows-x86_64.zip.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-assets
+          path: release-assets
+
+      - name: Create release for existing tag
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create '${{ github.ref_name }}' `
+            'release-assets/wallset-${{ github.ref_name }}-windows-x86_64.zip' `
+            'release-assets/wallset-${{ github.ref_name }}-windows-x86_64.zip.sha256' `
+            --repo '${{ github.repository }}' `
+            --verify-tag `
+            --generate-notes `
+            --title 'Wallset ${{ github.ref_name }}'

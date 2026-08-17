@@ -45,6 +45,8 @@ cargo test
 cargo build --release
 ```
 
+Maintainers publish Windows releases from semantic-version tags on `main`; see [Releasing Wallset](./RELEASING.md).
+
 ## Slint attribution
 
 <img src="./docs/MadeWithSlint-logo-whitebg.png" style="width:120px; height:auto; margin-bottom:8px;">

@@ -9,12 +9,12 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Validate and package Windows release
+  validate:
+    name: Validate release tag
     runs-on: windows-latest
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -43,22 +43,36 @@ jobs:
             throw "Tagged commit ${{ github.sha }} is not contained in origin/main."
           }
 
+  checks:
+    name: Windows tests and lint
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Cache Cargo files
-        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Check formatting
         run: cargo fmt --check
 
-      - name: Lint
-        run: cargo clippy --all-targets --locked -- -D warnings
-
       - name: Test
         run: cargo test --locked
 
+      - name: Lint
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  package:
+    name: Package Windows release
+    needs: validate
+    runs-on: windows-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Build clean release executable
-        run: |
-          cargo clean
-          cargo build --release --locked
+        run: cargo build --release --locked
 
       - name: Package release
         shell: pwsh
@@ -86,7 +100,7 @@ jobs:
           "$hash  $archive" | Set-Content -Encoding ascii -NoNewline "$archive.sha256"
 
       - name: Store release assets
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-assets
           path: |
@@ -97,13 +111,15 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: build
+    needs:
+      - checks
+      - package
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - name: Download release assets
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-assets
           path: release-assets

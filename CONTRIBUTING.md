@@ -37,6 +37,20 @@ Read [`CONTEXT.md`](./CONTEXT.md) before changing domain behavior. Use its estab
 
 ## Making changes
 
+The `main` branch is protected, including for maintainers. Create a topic branch from the latest `main`, make and push changes there, and merge them through a pull request. Direct pushes, force pushes, and deletion of `main` are blocked.
+
+For example:
+
+```powershell
+git switch main
+git pull --ff-only
+git switch -c <issue-number>-short-description
+# Make and commit the change.
+git push -u origin HEAD
+```
+
+Ordinary pull requests are not releases. Merging an untagged change into `main` updates the app's development history but does not run the Release workflow or publish an executable. Releases are created separately by pushing a `vMAJOR.MINOR.PATCH` tag whose version matches `Cargo.toml` and whose commit is already contained in `main`.
+
 Preserve saved configuration compatibility unless an issue explicitly calls for a migration or breaking change. Missing wallpaper files and folders are retained as unavailable configuration rather than silently discarded, and saved monitors remain known while disconnected.
 
 Keep platform-specific and `unsafe` Windows API code narrowly scoped. Document non-obvious safety assumptions, preserve ownership and cleanup requirements for Windows handles and allocated values, and test failure paths where they can be isolated from the operating system.
@@ -69,6 +83,8 @@ Open a pull request with:
 - notes about configuration compatibility, new dependencies, assets, or Windows API behavior.
 
 Keep commits reviewable and ensure generated build output from `target/` is not committed. Respond to review by updating the contribution or explaining the tradeoff when a different approach is intentional.
+
+Before merging, the pull request branch must be up to date with `main`, all review conversations must be resolved, and the required `Windows tests and lint` and `Windows release build` checks must pass. An approving review is not currently required because the project has a single maintainer.
 
 ## Licensing and provenance
 
